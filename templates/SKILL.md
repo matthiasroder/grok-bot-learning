@@ -1,11 +1,21 @@
 ---
 name: shared-learning
-description: Retrieve scoped lessons and record explicit user corrections or verified outcomes during an existing bot task. Use only when the shared-learning profile block is enabled.
+description: >-
+  Use this when the user corrects you or says learn, remember, from now on,
+  always, never, or stop doing X, or at the start of substantive work, and your
+  profile has a shared-learning block: retrieve scoped lessons and record
+  corrections in the shared learning log.
 ---
 
 # Shared learning
 
+Canonical file: `$ROOT/current/SKILL.md` (keep the `shared-learning` skill-catalog entry in sync with this file).
+
 Runtime: `$CLI`. Your bot ID is in your native profile's learning block. Never impersonate another bot. All bots share a machine: these scopes guide retrieval, not OS security.
+
+## Trigger
+
+Record in the same turn, before replying, whenever the user corrects you or says learn, remember, from now on, always, never, or stop doing X. Run `record` (kind `correction` or `preference`, origin `direct-user`, the user's exact words, `source_ref` = conversation + turn) IN ADDITION to any native memory save; a native memory save alone does not count as recording. For a lasting preference about your own work, also run `learn` with that event ID (scope `bot:YOUR_ID`).
 
 ## Start substantive work
 
@@ -54,7 +64,7 @@ The configured curator is `$CURATOR_ID`. It can inspect non-protected candidates
 
 Use `review --actor $CURATOR_ID --lesson LESSON_ID --decision activate --rationale 'specific evidence-based reason'`, or `retire` for an unsuitable candidate. Leave ambiguity pending when it needs the human's judgment. This store never rewrites a skill or native profile automatically.
 
-After every consolidation run, post a concise summary to the human in the curator's existing conversation: what was activated or updated, affected bots/scopes, and reviewed/pending counts. Briefly mention retired candidates or failures. Distinguish active lessons from proposals. Say **No new learning this run** when appropriate. A disabled/unavailable runtime gets a short status report, not a false success claim. Keep raw memories, protected details, and technical IDs out of routine summaries.
+After every consolidation run, even when there are 0 candidates, post a concise summary to the owner in the curator's existing conversation: what was activated or updated, affected bots/scopes, and reviewed/pending counts. Briefly mention retired candidates or failures. Distinguish active lessons from proposals. Say **No new learning this run** when nothing new was activated or updated, and include the counts. A disabled/unavailable runtime gets a short status report, not a false success claim. Keep raw memories, protected details, and technical IDs out of routine summaries.
 
 Do not wake or message sibling bots automatically. They retrieve applicable lessons during their next normal turn. Reported summaries describe the review run; they are not a complete audit of every bot's locally activated preference.
 
