@@ -19,7 +19,7 @@ import tempfile
 import uuid
 
 SCHEMA = 1
-RELEASE = "0.1.0"
+RELEASE = "0.2.0"
 BEGIN = "[shared-learning:begin]"
 END = "[shared-learning:end]"
 SENSITIVE = re.compile(r"(?i)(?:\b(?:password|passphrase|api[_ -]?key|access[_ -]?token|authorization)\s*[:=]\s*\S+|\bBearer\s+\S+|\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]{16,})")
@@ -60,6 +60,15 @@ def atomic_json(path, value):
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
+
+
+def owner_name(config):
+    """Name shown in the profile block. Omitted config uses a generic label."""
+    owner = config.get("owner_name", "the user") if isinstance(config, dict) else ""
+    if (not isinstance(owner, str) or not owner or owner != owner.strip()
+            or any(ch in owner for ch in "\r\n") or BEGIN in owner or END in owner):
+        raise ValueError("owner_name must be a nonempty single-line name without shared-learning markers")
+    return owner
 
 
 def load_config(path):
@@ -103,6 +112,7 @@ def load_config(path):
         value = routine.get(key, default)
         if not isinstance(value, str) or not value.strip() or "\n" in value:
             raise ValueError("Invalid routine " + key)
+    owner_name(obj)
     return obj
 
 

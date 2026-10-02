@@ -41,7 +41,8 @@ def install(root, config_path):
         memory.switch(False)
         memory.checkpoint("pre-activation")
         return {"root": str(root), "enabled": False, "agents": memory.status()["agents"],
-                "next": "Prepare native manifests, apply with supported Grok tools, verify, then enable."}
+                "next": "Prepare native manifests, register current/SKILL.md in the skill catalog as "
+                        "shared-learning, apply with supported Grok tools, verify, then enable."}
     finally:
         memory.close()
 

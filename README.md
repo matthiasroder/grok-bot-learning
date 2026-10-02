@@ -12,7 +12,7 @@ This is an independent reference implementation, not an official Grok product. I
 2. An explicit fleet configuration: IDs, curator, domains, protected bots, and opt-in global sharing.
 3. A shared protocol and a twice-daily review routine that reports after every run.
 4. Native integration manifests with original descriptions, exact proposed changes, and restoration instructions.
-5. A synthetic demo, 36 acceptance tests, and GitHub Actions checks.
+5. A synthetic demo, 40 acceptance tests, and GitHub Actions checks.
 
 Runtime dependencies: **Python 3.10+ and SQLite with FTS5**. No pip packages, vector database, API key, or background server are required. Grok's normal model/tool usage still applies.
 
@@ -61,6 +61,7 @@ Copy `examples/fleet.example.json` to a private `fleet.json`. Replace every synt
 | `protected: true` | Keep lessons local and exclude candidates from the curator's queue. |
 | `include_global: true` | Explicitly allow global lessons. Defaults to false; incompatible with protected mode. |
 | `curator_id` | Active, non-protected bot that can review shared candidates. |
+| `owner_name` | Name used in the profile block. Defaults to `the user`. |
 
 Names have no hidden policy meaning. Two bots with different writing voices can have separate domains, and a creative persona can decline global work preferences.
 
@@ -74,7 +75,7 @@ python3 install.py --root /workspace/grok-learning --config ./fleet.json
 python3 /workspace/grok-learning/current/native.py prepare --root /workspace/grok-learning
 ```
 
-Installation copies the runtime and rendered skill, registers only configured bots, and creates a `pre-activation` database checkpoint. Preparation reads native profiles and saves exact originals. Neither command changes Grok profiles or routines. The runtime stays disabled.
+Installation copies the runtime and rendered skill, registers only configured bots, and creates a `pre-activation` database checkpoint. Preparation reads native profiles and saves exact originals. If a description already contains a shared-learning block, preparation replaces only the text between `[shared-learning:begin]` and `[shared-learning:end]`. Neither command changes Grok profiles or routines. The runtime stays disabled.
 
 ### 3. Apply the native integration
 
@@ -82,7 +83,9 @@ Follow [the deployment guide](docs/deployment.md), or use its copyable setup pro
 
 Use **supported Grok profile and routine tools or UI**. Preserve original descriptions and every unrelated field. Never apply the manifests by overwriting internal JSON or databases. Some accounts/tool versions may not expose the same management operations; stop and report that limitation.
 
-Test restoration before enabling. In the original deployment, the cross-bot updater rejected empty descriptions while each bot's own profile setter accepted an empty string. Treat that as an observed compatibility detail, not a universal API guarantee.
+Save the rendered `current/SKILL.md` into the Grok Bot skill catalog under the name `shared-learning`, using the owner's UpdateState skill write. Keep that catalog entry the same as the canonical file. The profile block names the skill by that catalog name; a file on disk that is not in the catalog is not consulted. When the canonical skill changes, update the catalog in the same change.
+
+Test restoration before enabling. A profile description that must be exactly empty can only be restored by the owning bot's own profile setter, because the sibling-agent update tool rejects empty or whitespace-only descriptions. Do not substitute a placeholder. In the original deployment, each bot's own setter accepted an empty string. Treat tool names as an observed compatibility detail, not a universal API guarantee.
 
 ### 4. Verify and enable
 
@@ -90,6 +93,8 @@ Test restoration before enabling. In the original deployment, the cross-bot upda
 python3 /workspace/grok-learning/current/native.py verify --root /workspace/grok-learning
 /workspace/grok-learning/bin/agent-memory enable
 ```
+
+To replace an older shared-learning block inside a manifest that already exists, run this version's `native.py upgrade --root /path/to/existing-install`, then reapply the targets and update the catalog skill. Upgrade leaves baseline backups and native profiles untouched. Details are in [the deployment guide](docs/deployment.md).
 
 Enable only after every configured profile is verified, native bot existence and the new routine are confirmed, unrelated fields are unchanged, and restoration has been tested. The file verifier exits nonzero on an incomplete integration. It cannot verify a server-kept routine or prove that a bot still exists in the app.
 
@@ -112,11 +117,11 @@ All CLI commands return JSON. `record` and `learn` read a JSON object from stdin
 
 ## What the human sees
 
-The configured review routine posts a short summary in the curator's chat after **every run**: lessons activated or updated, affected bots/scopes, reviewed and pending counts, and failures when relevant. An empty review says “No new learning this run.” It does not wake sibling bots. Reports summarize that review, not every bot-local preference activated between runs.
+The configured review routine posts a short summary to the owner in the curator's chat after **every run**, including a run with 0 candidates: lessons activated or updated, affected bots/scopes, reviewed and pending counts, and failures when relevant. An empty review says “No new learning this run.” It does not wake sibling bots. Reports summarize that review, not every bot-local preference activated between runs.
 
 ## Limits to understand
 
-Capture depends on bots following the protocol. There is no verified platform completion hook. Historical transcript import is opt-in and treats exports as dated evidence, not current human instructions.
+Capture depends on bots following the protocol. There is no verified platform completion hook. A native memory save alone does not count as recording: the profile block tells the bot to run `record` in the same turn as a correction or an explicit learn, remember, always, never, or stop instruction. Scheduled reviews only consolidate candidates that were recorded. Historical transcript import is opt-in and treats exports as dated evidence, not current human instructions.
 
 Scope checks are retrieval policy, **not a security boundary**. The bots share an OS account, and the CLI's agent ID is supplied by its caller. A bot with shell access could read the database directly or impersonate another ID. Source provenance is recorded, not cryptographically authenticated. Keyword checks for permission-related text and common secret patterns are incomplete heuristics.
 

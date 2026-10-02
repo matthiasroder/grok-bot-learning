@@ -1,5 +1,6 @@
 {
   "schema": 1,
+  "owner_name": "the user",
   "curator_id": "55555555-5555-4555-8555-555555555555",
   "native_root": "/home/box/agent-data",
   "routine": {

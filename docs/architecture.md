@@ -1,6 +1,6 @@
 # Architecture and trust
 
-The native bot handles judgment. Python handles persistence, scope filters, lifecycle checks, and evidence references. There is no model API call inside the runtime. The bot must choose when to record useful evidence and how to propose a lesson.
+The native bot handles judgment. Python handles persistence, scope filters, lifecycle checks, and evidence references. There is no model API call inside the runtime. The profile block requires the bot to `record` in the same turn when the user corrects it or says learn, remember, from now on, always, never, or stop doing X. A native memory save does not count as that record. The bot still decides how to propose a lesson from the recorded evidence.
 
 ## Storage
 

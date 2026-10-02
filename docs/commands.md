@@ -9,7 +9,7 @@ The installed wrapper supplies `--root`. From the checkout, use `python3 agent_m
 | `status` | Counts, control flag, schema, and database integrity. |
 | `enable` / `disable` | Operator control. Ordinary bots must not toggle this. |
 | `session` / `recall --agent ID --query TEXT` | Active scoped lessons and source references; logs a retrieval. |
-| `record --agent ID` | JSON evidence on stdin. |
+| `record --agent ID` | JSON evidence on stdin. Run it in the same turn as a correction or an explicit learn, remember, always, never, or stop instruction. A native memory save does not replace this command. |
 | `learn --agent ID` | JSON lesson proposal on stdin. |
 | `evidence --agent ID --limit N` | Recent evidence belonging to that bot. |
 | `queue --agent ID --limit N` | Own candidates, or non-protected candidates for the configured curator. |
