@@ -4,8 +4,8 @@ The installed wrapper supplies `--root`. From the checkout, use `python3 agent_m
 
 | Command | Purpose |
 | --- | --- |
-| `init` | Reconcile the explicit config roster; does not enable learning. |
-| `roster` | List present registered bots and their scopes. |
+| `init` | Reconcile configured bots and adopt eligible native profiles. Does not enable learning. |
+| `roster` | Reconcile the same way, then list present bots and their scopes. |
 | `status` | Counts, control flag, schema, and database integrity. |
 | `enable` / `disable` | Operator control. Ordinary bots must not toggle this. |
 | `session` / `recall --agent ID --query TEXT` | Active scoped lessons and source references; logs a retrieval. |
@@ -53,6 +53,15 @@ The importer alone uses `conversation-excerpt` / `historical-transcript`.
 Kinds: `preference`, `workflow`, `decision-reference`, `boundary`.
 Evidence types: `explicit-correction`, `verified-result`, `hypothesis`.
 Scopes: own `bot:ID`, a configured `domain:SLUG`, or opted-in `global`.
+A profile that is not listed in config is adopted on `record`, `learn`, `session`, or `roster` with bot-local scope only (`unassigned-<id>`, not protected, global off) until you add it to config. Listed bots keep their domain, protected flag, global opt-in, and `active` flag. A missing export folder does not drop a listed bot.
+
+## Inactive native bots
+
+`manifests/inactive-native-agents.json` (under the install root) lists unconfigured profiles that must not be adopted. Names are exact profile `name` strings. Ids are canonical UUIDs. `agent_memory.EXCLUDED` is an additional built-in name list. A bot already listed in config is controlled by its `active` flag, not by this file.
+
+```json
+{"ids": ["99999999-9999-4999-8999-999999999999"], "names": ["Template"]}
+```
 Optional fields: `supersedes` (an existing own lesson in the same scope), `expires_at` (future ISO timestamp with time zone).
 
 One-off instructions and hypotheses stay candidates. A hypothesis requires a new proposal supported by new evidence before activation. There is no numeric confidence score that substitutes for evidence. The human or agent reviewer must still judge whether the evidence supports the text and scope.

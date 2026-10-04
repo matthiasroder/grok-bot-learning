@@ -52,7 +52,7 @@ Evidence types: `explicit-correction`, `verified-result`, `hypothesis`.
 
 Only a durable bot-local preference backed by a direct correction can activate immediately. Workflows, shared lessons, uncertain interpretations, and one-off instructions become candidates. Permission-related lessons cannot be promoted by this system; use the original authorization process.
 
-Start with `bot:YOUR_ID`. `roster` shows your configured domain. Propose `domain:DOMAIN` only for a relevant domain lesson, and `global` only for an explicitly general work preference when your configuration allows it. Protected bots remain local. Preserve different brands, artistic voices, and personal contexts. A successful local shortcut is not automatically useful to every bot.
+Start with `bot:YOUR_ID`. `roster` reconciles, then shows your configured domain. A bot created after the last sync is added on the first `session`, `record`, or `learn`; until a domain is configured, scope stays bot-local. An unknown-bot error means the profile is missing, excluded, or marked inactive. Propose `domain:DOMAIN` only for a relevant domain lesson, and `global` only for an explicitly general work preference when your configuration allows it. Protected bots remain local. Preserve different brands, artistic voices, and personal contexts. A successful local shortcut is not automatically useful to every bot.
 
 Use `supersedes` with a real previous lesson ID when a correction replaces a rule. Use `expires_at` only for a known expiry. `evidence --agent YOUR_ID` shows your own evidence; `queue --agent YOUR_ID` shows candidates.
 
