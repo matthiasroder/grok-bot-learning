@@ -6,7 +6,7 @@ The native bot handles judgment. Python handles persistence, scope filters, life
 
 | Table | What it preserves |
 | --- | --- |
-| `agents` | Explicit roster, domains, protected/global flags, presence. |
+| `agents` | Configured roster plus adopted native profiles, domains, protected/global flags, presence. |
 | `events` | Focused correction/outcome evidence with source references. |
 | `lessons` | Current candidate, active, retired, or superseded lesson state. |
 | `lesson_versions` | Every lesson revision and its actor/action. |

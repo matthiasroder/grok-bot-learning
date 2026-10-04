@@ -127,17 +127,33 @@ class PortableInstallation(unittest.TestCase):
                     load_config(self.config_path)
         self.assertFalse(self.root.exists())
 
-    def test_names_do_not_control_scope_and_unconfigured_exports_are_ignored(self):
+    def test_names_do_not_control_scope_and_inactive_exports_stay_out(self):
         for agent in self.config["agents"]:
             agent["name"] = "Renamed bot"
         self.config_path.write_text(json.dumps(self.config))
-        extra = self.native / "agents" / "99999999-9999-4999-8999-999999999999" / "profile.json"
+        extra_id = "99999999-9999-4999-8999-999999999999"
+        extra = self.native / "agents" / extra_id / "profile.json"
         extra.parent.mkdir(parents=True); extra.write_text('{"name":"Stale export"}')
         install(self.root, self.config_path)
         m = Memory(self.root)
         try:
+            # A native profile that is not in config is adopted. Config still owns listed bots.
+            self.assertEqual(m.status()["agents"], 6)
+            self.assertEqual(m.agent(extra_id)["name"], "Stale export")
+            listed = self.config["agents"][1]["id"]
+            self.assertEqual(m.agent(listed)["domain"], "software")
+            self.assertEqual(m.agent(listed)["name"], "Renamed bot")
+            manifest = self.root / "manifests"
+            manifest.mkdir(parents=True)
+            # The inactive file blocks unlisted profiles only. A listed bot stays, even if its id is repeated there.
+            (manifest / "inactive-native-agents.json").write_text(json.dumps({
+                "ids": [extra_id, listed], "names": ["Renamed bot"]}))
+            m.roster()
             self.assertEqual(m.status()["agents"], 5)
-            self.assertEqual(m.agent(self.config["agents"][1]["id"])["domain"], "software")
+            with self.assertRaises(ValueError):
+                m.agent(extra_id)
+            self.assertEqual(m.agent(listed)["domain"], "software")
+            self.assertEqual(m.agent(listed)["name"], "Renamed bot")
         finally:
             m.close()
         self.assertEqual(len(discover(self.native)["exported_profiles"]), 6)

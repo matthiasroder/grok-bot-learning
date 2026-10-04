@@ -53,7 +53,9 @@ In the original deployment on 2026-09-30, another bot's `UpdateAgent` rejected a
 
 These are observed behaviors from one deployment, not a stable SDK contract. The generated target avoids padding for an empty original. If the current native setter normalizes a nonempty original, report the mismatch instead of silently changing the restoration baseline.
 
-Exported folders can survive native deletion. A stale folder does not justify recreating a bot. Mark confirmed-absent IDs inactive in private configuration. Run `agent-memory init` to reconcile the database roster; it retains their historical evidence. Do not run init casually while editing scopes.
+`init` and `roster` adopt a native profile that is not already listed in config, with bot-local scope only. `record`, `learn`, and `session` do that same sync once when the bot id is a canonical UUID, `profile.json` exists, and the bot is not excluded or inactive. Invalid ids and missing profiles do not sync. The sync writes the usual `roster-sync` audit row and does not modify native profiles, native config, or the enable flag.
+
+For a profile that is not listed in config, put its id or exact profile name in `manifests/inactive-native-agents.json` so the next `roster` or `init` does not adopt it. A bot that is already in config follows that bot's `active` flag; set `active: false` to mark it absent. Either way, historical evidence stays. Deleting an adopted bot's folder marks that bot absent on the next sync. A configured bot stays present while `active` is true, even if its export folder is missing, because an export can be incomplete. Do not run init casually while editing scopes.
 
 ## Restoration
 

@@ -19,9 +19,12 @@ import tempfile
 import uuid
 
 SCHEMA = 1
-RELEASE = "0.2.0"
+RELEASE = "0.3.0"
 BEGIN = "[shared-learning:begin]"
 END = "[shared-learning:end]"
+# Exact profile "name" values that never join the roster. The install file
+# manifests/inactive-native-agents.json can add more names and ids.
+EXCLUDED = frozenset()
 SENSITIVE = re.compile(r"(?i)(?:\b(?:password|passphrase|api[_ -]?key|access[_ -]?token|authorization)\s*[:=]\s*\S+|\bBearer\s+\S+|\b(?:sk-|ghp_|github_pat_)[A-Za-z0-9_-]{16,})")
 BOUNDARY = re.compile(r"(?i)\b(?:approval|permission|authorization|authorisation|publish|publishing|posten|send|sending|payment|pay|delete|deploy|credentials?|password|secrets?|bypass|execute|sudo)\b")
 
@@ -60,6 +63,31 @@ def atomic_json(path, value):
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
+
+
+def canonical_uuid(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(uuid.UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def read_profile(path):
+    """Return {"name": str} for a JSON object profile. None means do not adopt it."""
+    try:
+        obj = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    name = obj.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = ""
+    else:
+        name = name.strip()
+    return {"name": name}
 
 
 def owner_name(config):
@@ -179,30 +207,118 @@ class Memory:
         self.db.execute("INSERT INTO audit(actor,action,details,created_at) VALUES(?,?,?,?)",
                         (actor, action, dump(details), now()))
 
+    def _exclusions(self):
+        """Ids and profile names that stay out of the roster. Read-only."""
+        names = set(EXCLUDED)
+        ids = set()
+        path = self.root / "manifests" / "inactive-native-agents.json"
+        if not path.is_file():
+            return ids, names
+        try:
+            obj = json.loads(path.read_text())
+        except OSError as exc:
+            raise ValueError("inactive-native-agents.json could not be read") from exc
+        except ValueError as exc:
+            raise ValueError("inactive-native-agents.json is not valid JSON") from exc
+        if isinstance(obj, list):
+            obj = {"ids": obj}
+        if not isinstance(obj, dict):
+            raise ValueError("inactive-native-agents.json must be an object with ids and names")
+        raw_ids = obj.get("ids", [])
+        raw_names = obj.get("names", [])
+        if not isinstance(raw_ids, list) or not isinstance(raw_names, list):
+            raise ValueError("inactive-native-agents.json ids and names must be arrays")
+        for item in raw_ids:
+            if not canonical_uuid(item):
+                raise ValueError("inactive-native-agents.json ids must be canonical UUIDs")
+            ids.add(item)
+        for item in raw_names:
+            if not isinstance(item, str) or not item or item != item.strip():
+                raise ValueError("inactive-native-agents.json names must be nonempty strings")
+            names.add(item)
+        return ids, names
+
+    def _native_profiles(self):
+        """Map canonical bot id to profile name. Skips unreadable profiles. Does not write."""
+        root = self.native / "agents"
+        found = {}
+        if not root.is_dir():
+            return found
+        for path in sorted(root.glob("*/profile.json")):
+            aid = path.parent.name
+            if not canonical_uuid(aid):
+                continue
+            record = read_profile(path)
+            if record is None:
+                continue
+            found[aid] = record["name"] or aid
+        return found
+
+    def _upsert_agent(self, aid, name, domain, protected, include_global):
+        self.db.execute("""INSERT INTO agents VALUES(?,?,?,?,?,1)
+        ON CONFLICT(id) DO UPDATE SET name=excluded.name,domain=excluded.domain,
+        protected=excluded.protected,include_global=excluded.include_global,present=1""",
+            (aid, name, domain, int(bool(protected)), int(bool(include_global))))
+
     def roster(self):
-        # Explicit configuration is authoritative; stale exported folders are not.
+        # Listed bots keep config domain, protected, include_global, and active.
+        # Any other readable native profile is adopted with bot-local scope unless
+        # its name is excluded or its id is inactive. A missing adopted folder is
+        # left absent. This never writes native profiles or config.json.
         self.config = load_config(self.root / "config.json")
         self.curator = self.config["curator_id"]
+        profiles = self._native_profiles()
+        inactive, excluded_names = self._exclusions()
         seen = []
+        configured = set()
         with self.db:
             self.db.execute("UPDATE agents SET present=0")
             for obj in self.config["agents"]:
+                aid, name = obj["id"], obj["name"]
+                configured.add(aid)
                 if not obj.get("active", True):
                     continue
-                aid, name = obj["id"], obj["name"]
                 domain = obj.get("domain") or "unassigned-" + aid
                 protected = obj.get("protected", False)
                 include_global = obj.get("include_global", False)
-                self.db.execute("""INSERT INTO agents VALUES(?,?,?,?,?,1)
-                ON CONFLICT(id) DO UPDATE SET name=excluded.name,domain=excluded.domain,
-                protected=excluded.protected,include_global=excluded.include_global,present=1""",
-                    (aid, name, domain, int(protected), int(include_global)))
-                seen.append({"id": aid, "name": name, "domain": domain, "protected": protected})
+                self._upsert_agent(aid, name, domain, protected, include_global)
+                seen.append({"id": aid, "name": name, "domain": domain, "protected": bool(protected)})
+            for aid in sorted(profiles):
+                if aid in configured or aid in inactive:
+                    continue
+                name = profiles[aid]
+                if name in excluded_names:
+                    continue
+                domain = "unassigned-" + aid
+                self._upsert_agent(aid, name, domain, False, False)
+                seen.append({"id": aid, "name": name, "domain": domain, "protected": False})
             self.audit("system", "roster-sync", {"count": len(seen)})
         return seen
 
+    def _adoptable_profile(self, aid):
+        """True only for a real profile that roster is allowed to add. No writes."""
+        if not canonical_uuid(aid):
+            return False
+        path = self.native / "agents" / aid / "profile.json"
+        if not path.is_file():
+            return False
+        record = read_profile(path)
+        if record is None:
+            return False
+        inactive, excluded_names = self._exclusions()
+        for obj in self.config["agents"]:
+            if obj["id"] == aid:
+                # Config decides membership. Exclusion lists must not hide a listed bot.
+                return bool(obj.get("active", True))
+        if aid in inactive or (record["name"] and record["name"] in excluded_names):
+            return False
+        return True
+
     def agent(self, aid):
         row = self.db.execute("SELECT * FROM agents WHERE id=? AND present=1", (aid,)).fetchone()
+        if not row and self._adoptable_profile(aid):
+            self.roster()
+            row = self.db.execute("SELECT * FROM agents WHERE id=? AND present=1", (aid,)).fetchone()
         if not row:
             raise ValueError("Unknown or absent bot; use the current roster ID")
         return dict(row)
@@ -555,7 +671,9 @@ def main(argv=None):
         memory = Memory(args.root, args.native_root)
         cmd = args.command
         if cmd == "init": result = {"roster": memory.roster(), "status": memory.status()}
-        elif cmd == "roster": result = [dict(r) for r in memory.db.execute("SELECT * FROM agents WHERE present=1 ORDER BY name")]
+        elif cmd == "roster":
+            memory.roster()
+            result = [dict(r) for r in memory.db.execute("SELECT * FROM agents WHERE present=1 ORDER BY name")]
         elif cmd == "status": result = memory.status()
         elif cmd in {"enable", "disable"}: result = memory.switch(cmd == "enable")
         elif cmd == "checkpoint": result = memory.checkpoint(args.name)

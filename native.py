@@ -18,7 +18,7 @@ def discover(native):
         obj = json.loads(path.read_text())
         rows.append({"id": path.parent.name, "name": obj.get("name", ""), "source": str(path)})
     return {"exported_profiles": rows,
-            "warning": "Exports can be stale or retain deleted bots. Confirm active IDs in Grok before configuration."}
+            "warning": "Exports can be stale or retain deleted bots. Profiles that are not in config are adopted unless excluded or listed in manifests/inactive-native-agents.json."}
 
 
 def runtime_cli(root):

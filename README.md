@@ -12,7 +12,7 @@ This is an independent reference implementation, not an official Grok product. I
 2. An explicit fleet configuration: IDs, curator, domains, protected bots, and opt-in global sharing.
 3. A shared protocol and a twice-daily review routine that reports after every run.
 4. Native integration manifests with original descriptions, exact proposed changes, and restoration instructions.
-5. A synthetic demo, 40 acceptance tests, and GitHub Actions checks.
+5. A synthetic demo, 46 acceptance tests, and GitHub Actions checks.
 
 Runtime dependencies: **Python 3.10+ and SQLite with FTS5**. No pip packages, vector database, API key, or background server are required. Grok's normal model/tool usage still applies.
 
@@ -50,7 +50,7 @@ Use a terminal on the computer your Grok bots share, or an already-authorized SS
 python3 native.py discover --native-root /home/box/agent-data
 ```
 
-The path above was observed in the original deployment. It is a configurable export location, **not a promised public API**. If it differs or is missing, inspect your environment with supported Grok tools. Do not guess IDs. File discovery can include deleted bots and omit newer ones; confirm the actual roster in Grok.
+The path above was observed in the original deployment. It is a configurable export location, **not a promised public API**. If it differs or is missing, inspect your environment with supported Grok tools. Do not guess IDs. A profile folder that appears later is adopted on the next `roster`, `init`, `record`, `learn`, or `session`. Folders that remain after a bot was deleted are not a reason to keep that bot: if the bot is not in config, list the id or exact profile name in `manifests/inactive-native-agents.json` and run `roster`. If the bot is already in config, set `active: false` instead.
 
 Copy `examples/fleet.example.json` to a private `fleet.json`. Replace every synthetic ID and example name with your own bot's actual ID and name. Choose an existing curator. Configure the intended domains and your IANA time zone. Remove examples you do not need.
 
@@ -75,7 +75,7 @@ python3 install.py --root /workspace/grok-learning --config ./fleet.json
 python3 /workspace/grok-learning/current/native.py prepare --root /workspace/grok-learning
 ```
 
-Installation copies the runtime and rendered skill, registers only configured bots, and creates a `pre-activation` database checkpoint. Preparation reads native profiles and saves exact originals. If a description already contains a shared-learning block, preparation replaces only the text between `[shared-learning:begin]` and `[shared-learning:end]`. Neither command changes Grok profiles or routines. The runtime stays disabled.
+Installation copies the runtime and rendered skill, registers every configured bot, adopts any other native profile that is not excluded or inactive, and creates a `pre-activation` database checkpoint. Preparation reads native profiles and saves exact originals. If a description already contains a shared-learning block, preparation replaces only the text between `[shared-learning:begin]` and `[shared-learning:end]`. Neither command changes Grok profiles or routines. The runtime stays disabled.
 
 ### 3. Apply the native integration
 
@@ -107,11 +107,14 @@ All CLI commands return JSON. `record` and `learn` read a JSON object from stdin
 ```sh
 /workspace/grok-learning/bin/agent-memory session --agent YOUR_BOT_UUID --query 'draft the project update'
 /workspace/grok-learning/bin/agent-memory queue --agent YOUR_CURATOR_UUID --limit 12
+/workspace/grok-learning/bin/agent-memory roster
 /workspace/grok-learning/bin/agent-memory status
 /workspace/grok-learning/bin/agent-memory checkpoint before-change
 /workspace/grok-learning/bin/agent-memory disable
 /workspace/grok-learning/bin/agent-memory rollback pre-activation
 ```
+
+`roster` reconciles before it lists. A bot created after the last sync is accepted by `record`, `learn`, and `session` when its `profile.json` is present and the id is not excluded or inactive. That adoption does not change the enable flag and does not write native profiles. Configured bots keep their domain, protected flag, and global opt-in.
 
 `disable` stops recall and new learning writes. Database rollback restores prior lesson state, retains later events and revision history, and returns newer lessons to candidates. It leaves the runtime disabled. Exact native restoration is separate: use the saved restoration manifest through Grok's supported tools and pause the added routine.
 

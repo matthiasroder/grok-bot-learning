@@ -1,11 +1,15 @@
 import concurrent.futures
 import datetime as dt
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from agent_memory import Memory, sha
+from agent_memory import Memory, main, sha
 CURATOR = "55555555-5555-4555-8555-555555555555"
 
 A = "11111111-1111-4111-8111-111111111111"
@@ -247,6 +251,138 @@ class Acceptance(unittest.TestCase):
         self.assertEqual(self.mem.ingest(A)["imported"], 1)
         self.assertEqual(self.mem.ingest(A)["imported"], 0)
         self.assertEqual(self.mem.evidence(A)[0]["text"], "Valid message")
+
+    def _profile(self, aid, name):
+        path = self.native / "agents" / aid / "profile.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"name": name, "description": "Original role"}))
+        return path
+
+    def _syncs(self):
+        return self.mem.db.execute("SELECT count(*) FROM audit WHERE action='roster-sync'").fetchone()[0]
+
+    def test_new_profile_after_init_can_record_learn_and_recall(self):
+        new = "66666666-6666-4666-8666-666666666666"
+        other = "77777777-7777-4777-8777-777777777777"
+        native_before = {path: path.read_bytes() for path in self.native.glob("agents/*/profile.json")}
+        config_before = (self.root / "config.json").read_bytes()
+        control_before = (self.root / "state" / "control.json").read_bytes()
+        syncs = self._syncs()
+        self._profile(new, "Mindshift Content")
+        self._profile(other, "Offer Lab")
+        result = self.lesson(new, "Use the content checklist.")
+        self.assertEqual(result["status"], "active")
+        recalled = self.mem.recall(new, "content checklist")
+        self.assertEqual(recalled["lessons"][0]["id"], result["id"])
+        self.assertTrue(recalled["enabled"])
+        adopted = self.mem.agent(new)
+        self.assertEqual(adopted["name"], "Mindshift Content")
+        self.assertEqual(adopted["domain"], "unassigned-" + new)
+        self.assertEqual(adopted["protected"], 0)
+        self.assertEqual(adopted["include_global"], 0)
+        self.assertEqual(self.mem.allowed_scopes(new), ["bot:" + new])
+        # One sync adopts every new profile, not only the caller.
+        self.assertEqual(self.mem.agent(other)["name"], "Offer Lab")
+        self.mem.agent(new)
+        self.assertEqual(self._syncs(), syncs + 1)
+        for path, data in native_before.items():
+            self.assertEqual(path.read_bytes(), data)
+        self.assertEqual((self.root / "config.json").read_bytes(), config_before)
+        self.assertEqual((self.root / "state" / "control.json").read_bytes(), control_before)
+        self.assertNotIn(new, config_before.decode())
+
+    def test_unknown_id_without_profile_is_rejected_without_sync(self):
+        syncs = self._syncs()
+        missing = "88888888-8888-4888-8888-888888888888"
+        for aid in (missing, "not-a-uuid", "../escape", "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"):
+            with self.subTest(aid=aid):
+                with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+                    self.mem.agent(aid)
+                with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+                    self.mem.record(aid, {"kind": "correction", "text": "no", "origin": "direct-user",
+                                          "source_ref": "turn"})
+        broken = self._profile(missing, "Broken")
+        broken.write_text("{not json")
+        with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+            self.mem.agent(missing)
+        self.assertEqual(self._syncs(), syncs)
+        self.assertIsNone(self.mem.db.execute("SELECT id FROM agents WHERE id=?", (missing,)).fetchone())
+
+    def test_excluded_and_inactive_profiles_are_not_adopted(self):
+        syncs = self._syncs()
+        named = "99999999-9999-4999-8999-999999999991"
+        listed = "99999999-9999-4999-8999-999999999992"
+        self._profile(named, "Template")
+        self._profile(listed, "Paused Bot")
+        manifest = self.root / "manifests"
+        manifest.mkdir(parents=True)
+        (manifest / "inactive-native-agents.json").write_text(json.dumps({
+            "ids": [listed], "names": ["Template"]}))
+        for aid in (named, listed):
+            with self.subTest(aid=aid):
+                with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+                    self.mem.record(aid, {"kind": "correction", "text": "no", "origin": "direct-user",
+                                          "source_ref": "turn-" + aid})
+        self.assertEqual(self._syncs(), syncs)
+        coded = "99999999-9999-4999-8999-999999999993"
+        self._profile(coded, "Coded Exclusion")
+        with patch("agent_memory.EXCLUDED", frozenset({"Coded Exclusion"})):
+            with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+                self.mem.agent(coded)
+            self.assertEqual(self._syncs(), syncs)
+            self.mem.roster()
+            present = {row["id"] for row in self.mem.db.execute("SELECT id FROM agents WHERE present=1")}
+        self.assertNotIn(named, present)
+        self.assertNotIn(listed, present)
+        self.assertNotIn(coded, present)
+
+    def test_deleted_adopted_profile_is_absent_after_sync(self):
+        new = "66666666-6666-4666-8666-666666666666"
+        self._profile(new, "Offer Lab")
+        event = self.evidence(new, text="Ship the checklist.", suffix="offer")
+        shutil.rmtree(self.native / "agents" / new)
+        self.mem.roster()
+        row = self.mem.db.execute("SELECT present FROM agents WHERE id=?", (new,)).fetchone()
+        self.assertEqual(row["present"], 0)
+        with self.assertRaisesRegex(ValueError, "Unknown or absent bot; use the current roster ID"):
+            self.mem.agent(new)
+        self.assertEqual(self.mem.db.execute("SELECT id FROM events WHERE id=?", (event,)).fetchone()[0], event)
+        # A configured bot stays present when its export folder is missing.
+        shutil.rmtree(self.native / "agents" / A)
+        self.mem.roster()
+        self.assertEqual(self.mem.agent(A)["present"], 1)
+        self.assertEqual(self.mem.agent(A)["domain"], "software")
+
+    def test_disabled_runtime_does_not_adopt_on_record(self):
+        new = "66666666-6666-4666-8666-666666666666"
+        self._profile(new, "Mindshift Content")
+        self.mem.switch(False)
+        syncs = self._syncs()
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            self.evidence(new, text="Do not adopt while disabled.")
+        self.assertEqual(self._syncs(), syncs)
+        self.assertFalse(self.mem.recall(new, "checklist")["enabled"])
+        self.assertIsNone(self.mem.db.execute("SELECT id FROM agents WHERE id=?", (new,)).fetchone())
+
+    def test_roster_and_session_commands_adopt_before_use(self):
+        new = "66666666-6666-4666-8666-666666666666"
+        self._profile(new, "Offer Lab")
+        base = ["--root", str(self.root), "--native-root", str(self.native)]
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(base + ["session", "--agent", new, "--query", "draft the offer"]), 0)
+        body = json.loads(out.getvalue())
+        self.assertTrue(body["enabled"])
+        self.assertEqual(self.mem.agent(new)["name"], "Offer Lab")
+        audit = self.mem.db.execute(
+            "SELECT details FROM audit WHERE action='roster-sync' ORDER BY seq DESC LIMIT 1").fetchone()
+        self.assertIn("count", json.loads(audit["details"]))
+        out = io.StringIO()
+        with redirect_stdout(out):
+            self.assertEqual(main(base + ["roster"]), 0)
+        listed = json.loads(out.getvalue())
+        self.assertTrue(any(row["id"] == new and row["name"] == "Offer Lab" and row["present"] == 1
+                            for row in listed))
 
     def test_invalid_expiry_cannot_create_invisible_active_lesson(self):
         for value in ("", 42, "2030-01-01", [], {}):
